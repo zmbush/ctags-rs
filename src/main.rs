@@ -1,15 +1,35 @@
+#![feature(custom_derive)]
 extern crate toml;
+extern crate rustc_serialize;
 
-mod parse_toml;
-
-use std::{env, str};
+use std::env;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use parse_toml::{ParseValue, CargoLock, Package};
 use toml::Value;
+
+#[derive(Debug, RustcDecodable)]
+ struct Package {
+     name: String,
+     source: String,
+     version: String,
+     dependencies: Option<Vec<String>>
+}
+
+#[derive(Debug, RustcDecodable)]
+ struct Root {
+     name: String,
+     version: String,
+     dependencies: Option<Vec<String>>
+}
+
+#[derive(Debug, RustcDecodable)]
+ struct CargoLock {
+     root: Root,
+     package: Option<Vec<Package>>
+}
 
 fn parse_cargo_lock() -> io::Result<toml::Value> {
     let mut f = try!(File::open("Cargo.lock"));
@@ -21,10 +41,10 @@ fn parse_cargo_lock() -> io::Result<toml::Value> {
 
 fn get_dependency_list() -> Vec<Package> {
     let value = parse_cargo_lock().ok().expect("Unable to open cargo lock");
-    let lock: Option<CargoLock> = value.parse().ok();
+    let lock: Option<CargoLock> = toml::decode(value);
 
     match lock {
-        Some(lock) => lock.packages.unwrap_or(Vec::new()),
+        Some(lock) => lock.package.unwrap_or(Vec::new()),
         None => Vec::new()
     }
 }
@@ -70,7 +90,5 @@ fn main() {
         }
     }
 
-    let output = cmd.output().ok().expect("Couldn't run ctags");
-    println!("{:?}", str::from_utf8(&output.stdout));
+    cmd.output().ok().expect("Couldn't run ctags");
 }
-

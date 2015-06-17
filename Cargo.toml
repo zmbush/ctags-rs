@@ -5,3 +5,4 @@ authors = ["Zachary Bush <zachary.bush@meraki.net>"]
 
 [dependencies]
 toml = "*"
+rustc-serialize = "*"
