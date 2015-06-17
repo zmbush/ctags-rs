@@ -8,9 +8,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use toml::Value;
-
-#[derive(Debug, RustcDecodable)]
+#[derive(Debug, RustcDecodable, Default)]
  struct Package {
      name: String,
      source: String,
@@ -18,34 +16,37 @@ use toml::Value;
      dependencies: Option<Vec<String>>
 }
 
-#[derive(Debug, RustcDecodable)]
+#[derive(Debug, RustcDecodable, Default)]
  struct Root {
      name: String,
      version: String,
      dependencies: Option<Vec<String>>
 }
 
-#[derive(Debug, RustcDecodable)]
+#[derive(Debug, RustcDecodable, Default)]
  struct CargoLock {
      root: Root,
      package: Option<Vec<Package>>
 }
 
-fn parse_cargo_lock() -> io::Result<toml::Value> {
+fn parse_cargo_lock() -> io::Result<CargoLock> {
     let mut f = try!(File::open("Cargo.lock"));
     let mut buf = String::new();
     try!(f.read_to_string(&mut buf));
 
-    Ok(try!(buf.parse().ok().ok_or(io::Error::new(io::ErrorKind::Other, "Unale to parse cargo.toml"))))
+    match toml::decode_str(&buf) {
+        Some(v) => Ok(v),
+        None => Ok(CargoLock::default())
+    }
 }
 
 fn get_dependency_list() -> Vec<Package> {
-    let value = parse_cargo_lock().ok().expect("Unable to open cargo lock");
-    let lock: Option<CargoLock> = toml::decode(value);
-
-    match lock {
-        Some(lock) => lock.package.unwrap_or(Vec::new()),
-        None => Vec::new()
+    match parse_cargo_lock() {
+        Ok(lock) => lock.package.unwrap_or(Vec::new()),
+        Err(_) => {
+            println!("No Cargo.lock found");
+            Vec::new()
+        }
     }
 }
 
@@ -73,20 +74,30 @@ fn find_dependency_dir(dir: &Path, package: &Package) -> io::Result<PathBuf> {
 }
 
 fn main() {
-    let dependencies = get_dependency_list();
-
-    let root = env::home_dir().unwrap_or(Path::new("/").to_path_buf());
-    let cargo_dir = root.join(".cargo/registry/src");
-
     let mut cmd = Command::new("ctags");
 
     cmd.arg("-R");
     cmd.arg(".");
 
-    for dep in dependencies {
-        match find_dependency_dir(&cargo_dir, &dep) {
-            Ok(dir) => { cmd.arg(dir.as_os_str()); },
-            Err(_) => {}
+    let rust_ctag_config = include_str!("rust.ctags");
+    for config in rust_ctag_config.split("\n") {
+        cmd.arg(config);
+    }
+
+    let dependencies = get_dependency_list();
+
+    if dependencies.len() > 0 {
+        let root = env::home_dir().unwrap_or(Path::new("/").to_path_buf());
+        let cargo_dir = root.join(".cargo/registry/src");
+
+        for dep in dependencies {
+            match find_dependency_dir(&cargo_dir, &dep) {
+                Ok(dir) => {
+                    println!("Found cargo dependency: {}-{}", dep.name, dep.version);
+                    cmd.arg(dir.as_os_str());
+                },
+                Err(_) => {}
+            }
         }
     }
 
